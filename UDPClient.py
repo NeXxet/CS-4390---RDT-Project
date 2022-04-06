@@ -1,11 +1,17 @@
 import socket
-serverPort = 12000
-client_socket = socket.socket(socket.AF_INET, socket.SOCKET_DGRAM)
 
-message = "Hello message to server"
-client_socket.sendto(message.encode("utf-8"), ('127.0.0.1', serverPort))
-data, addr = client_socket.recvfrom(2048)
+msgFromClient = "Hello to server"
+encodedMsg = str.encode(msgFromClient)
+serverPort = ("127.0.0.1", 20001)
+bufferSize = 1024
 
-print("message from server:")
-print(str(data))
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+client_socket.sendto(encodedMsg, serverPort)
+msgFromServer = client_socket.recvfrom(bufferSize)
+
+data = "Message from Server {}".format(msgFromServer[0])
+
+print(data)
+
 client_socket.close()
