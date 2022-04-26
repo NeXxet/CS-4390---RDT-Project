@@ -1,14 +1,14 @@
 import socket
 
-def ConvertToBin(num, length): #this is a copy f the client's ConvertToBin
+def ConvertToBin(num, minLength): #this is a copy of client's ConvertToBin
     bnry = bin(num).replace('0b','') #convert to binary string and remove prefix
     temp = bnry[::-1] #reverse the string
-    while len(temp) < length:
+    while len(temp) < minLength:
         temp += '0' #put 0s behind the existing number until it is of length
     bnry = temp[::-1] #reverse the string again to get the correct binary number
     return bnry
 
-def MakeChecksum(pkt): #this is a copy of the client's MakeCheckum
+def MakeChecksum(pkt): #this is a copy of client's MakeChecksum
     thisPkt = pkt
     while (len(thisPkt) % 16) != 0: #make sure the pkt has correct number of bits
         thisPkt += '0' #add 0s to the end of the packet
@@ -17,9 +17,11 @@ def MakeChecksum(pkt): #this is a copy of the client's MakeCheckum
     while i < len(thisPkt): #sum together each 16-bit word
         sum += int(thisPkt[i:i+16], 2)
         i += 16
-    sumString = ConvertToBin(sum, 18) #convert to binary string and allow for 2 carry bits
-    if sumString[:2] != "00": #add the carry bits if there are any
-        sumString = ConvertToBin(int(sumString[:2], 2) + int(sumString[2:], 2), 16)
+    sumString = ConvertToBin(sum, 16) #convert to binary string
+    while len(sumString) > 16: #make sure to add all carry bits until the checksum is 16 bits
+        numExtra = len(sumString) - 16
+        carryBits = sumString[:numExtra+1]
+        sumString = ConvertToBin(int(carryBits, 2) + int(sumString[numExtra:], 2), 16)
     checksum = ''
     for i in sumString: #swap all digits in the checksum
         if i == '1':
@@ -51,12 +53,12 @@ while True:
     #IMPORTANT: change these assignments according to how the packet is
     # generated in the UDPClient file, there is no way to have the server
     # check for us
-
+    
     rcvrChecksum = MakeChecksum(seqNum + payload) #make receiver checksum
     if checksum == rcvrChecksum:
-        print("Correct packet received")
+        print(i, "Correct packet received")
     else:
-        print("Incorrect packet received")
+        print(i, "Incorrect packet received")
 
     #clientMsg = "Message from Client:{}".format(data)
     #clientIP = "Client IP Address:{}".format(address)

@@ -2,10 +2,10 @@ import socket
 import sys
 import random
 
-def ConvertToBin(num, length):
+def ConvertToBin(num, minLength):
     bnry = bin(num).replace('0b','') #convert to binary string and remove prefix
     temp = bnry[::-1] #reverse the string
-    while len(temp) < length:
+    while len(temp) < minLength:
         temp += '0' #put 0s behind the existing number until it is of length
     bnry = temp[::-1] #reverse the string again to get the correct binary number
     return bnry
@@ -19,9 +19,11 @@ def MakeChecksum(pkt):
     while i < len(thisPkt): #sum together each 16-bit word
         sum += int(thisPkt[i:i+16], 2)
         i += 16
-    sumString = ConvertToBin(sum, 18) #convert to binary string and allow for 2 carry bits
-    if sumString[:2] != "00": #add the carry bits if there are any
-        sumString = ConvertToBin(int(sumString[:2], 2) + int(sumString[2:], 2), 16)
+    sumString = ConvertToBin(sum, 16) #convert to binary string
+    while len(sumString) > 16: #make sure to add all carry bits until the checksum is 16 bits
+        numExtra = len(sumString) - 16
+        carryBits = sumString[:numExtra+1]
+        sumString = ConvertToBin(int(carryBits, 2) + int(sumString[numExtra:], 2), 16)
     checksum = ''
     for i in sumString: #swap all digits in the checksum
         if i == '1':
@@ -60,6 +62,7 @@ def Send(socket, dest, pkt, corruptProb):
     rand = random.randint(1,100)
     if rand <= corruptProb: #corrupt if the random int is within the corrupt probability
         pkt = Corrupt(pkt)
+        print("PACKET CORRUPTED")
     encodedMsg = str.encode(pkt)
     socket.sendto(encodedMsg, dest)
 
@@ -75,6 +78,7 @@ client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 binData = ''.join(format(ord(x), 'b') for x in data) #convert the data to binary
 i = 0
+j = 0
 while i < len(binData): #iterate through the data, taking 100 bytes each time
     if(len(binData[i:]) >= 800): #if the data has more than 100 bytes left, take the next 100 bytes
         payload = binData[i:i+800]
@@ -82,11 +86,13 @@ while i < len(binData): #iterate through the data, taking 100 bytes each time
         payload = binData[i:] #if the data has less than 100 bytes left, take the rest
     header = ConvertToBin(seqNum, 8) #header, for now, is just the sequence number
     packet = BuildPacket(header, payload) #create the packet
+    print(j)
     Send(client_socket, serverPort, packet, CORRUPT_PROBA) #send the packet to the server
     seqNum += 1 #for now, just increase sequence number by 1
     if(seqNum == 256):
         seqNum = 0
     i += 800
+    j += 1
 
 print("transfer done")
 
