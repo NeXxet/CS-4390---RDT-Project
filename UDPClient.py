@@ -1,6 +1,7 @@
 import socket
 import sys
 import random
+import math
 from time import sleep
 bufferSize = 1024
 
@@ -34,20 +35,23 @@ def MakeChecksum(pkt):
             checksum += '1'
     return checksum
 
-#not used yet, still a WIP
-def BuidHeader(seqNum, ackNum, rcvWin):
-    #need array of the variables for the header and need to convert them
-    # one by one to binary and stick them in one string to be sent as the
-    # header
-    #probably needed: sequence number, acknowledgement number, receive window, and checksum
-    header = ''
-    header += ConvertToBin(seqNum, 8) #add 8-bit sequence number to header
-    header += ConvertToBin(ackNum, 8) #add 8-bit acknowledgement number to header
-    header += ConvertToBin(rcvWin, 8) #add 8-bit receive window size to header
-    return header
+def BuildPacket(seqNum, ackNum, payload): #rcvWin):
+    #get ack number by adding to the sequence number the number of bytes in the payload
+    # plus 1 byte for the seqNum, 1 for the ackNum itself, and 2 for the checksum
+    ackNum = seqNum + math.ceil(len(payload) / 8) + 1 + 1 + 2
+    #make sure ackNum loops around
+    if(ackNum >= 256):
+        ackNum -= 256
 
-def BuildPacket(header, payload):
-    return header + payload
+    #convert numbers to binary
+    seqNumBin = ConvertToBin(seqNum, 8)
+    ackNumBin = ConvertToBin(ackNum, 8)
+    #make checksum
+    checksum = MakeChecksum(seqNumBin + ackNumBin + payload)
+    #build packet
+    packet = seqNumBin + ackNumBin + checksum + payload
+    
+    return packet, ackNumBin
 
 def Corrupt(pkt, corruptProb):
     #see if the packet is to be corrupted
@@ -65,17 +69,23 @@ def Corrupt(pkt, corruptProb):
     pkt = pkt[:index] + flipped + pkt[index+1:] #reassign string with new index
     return pkt
 
-def Send(socket, dest, pkt, corruptProb):
-    check = MakeChecksum(pkt) #make checksum
-    pkt = pkt[:8] + check + pkt[8:] #insert checksum after seq num in packet
-    reply = ''
-    while reply != "ACK":
+def Send(socket, dest, pkt, ackNumBin, corruptProb):
+    rcvSeqNum = ''
+    while rcvSeqNum != ackNumBin:
+        #send the packet to the server
         thispkt = Corrupt(pkt, corruptProb) #call the Corrupt method to maybe corrupt the packet
         encodedMsg = str.encode(thispkt) #encode the new packet
         socket.sendto(encodedMsg, dest) #send to server
+
+        #receive a reply
         pair = socket.recvfrom(bufferSize) #receive a message from the server
-        reply = "{}".format(pair[0]).replace('b', '').replace('\'', '') #get the raw message received
-        print("reply:", reply)
+        rcvSeqNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
+        rcvAckNum = "{}".format(pair[0][8:]).replace('b', '').replace('\'', '')
+        #IMPORTANT: the server only sends a seqNum and ackNum, you must manually
+        # change this if that is to change
+        print("rcvSeqNum:", rcvSeqNum)
+        
+    return int(rcvAckNum, 2)
 
 file = open(sys.argv[1], 'r') #data file name is first argument
 data = file.read() #read in all the data to one large string
@@ -89,8 +99,9 @@ client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 #set up local variables
 CORRUPT_PROBA = int(sys.argv[2]) #corruption probabiity is second argument
 seqNum = 0
-i = 0
-j = 0
+ackNum = 0
+i = 0 #i is used to iterate through the data and get the payload
+j = 0 #j is used to count the number of packets
 
 #send the data until it is gone
 while i < len(binData): #iterate through the data, taking 100 bytes each time
@@ -98,13 +109,12 @@ while i < len(binData): #iterate through the data, taking 100 bytes each time
         payload = binData[i:i+800]
     else:
         payload = binData[i:] #if the data has less than 100 bytes left, take the rest
-    header = ConvertToBin(seqNum, 8) #header, for now, is just the sequence number
-    packet = BuildPacket(header, payload) #create the packet
+    packet, ackNumBin = BuildPacket(seqNum, ackNum, payload) #create the packet and update ackNum
     print(j)
-    Send(client_socket, serverPort, packet, CORRUPT_PROBA) #send the packet to the server
-    seqNum += 1 #for now, just increase sequence number by 1
-    if(seqNum == 256):
-        seqNum = 0
+    ackNum = Send(client_socket, serverPort, packet, ackNumBin, CORRUPT_PROBA) #send the packet to the server
+    seqNum = ackNum #set the next seqNum to the ackNum
+    if(seqNum >= 256): #this should never proc, but leave it just in case
+        seqNum -= 256;
     i += 800
     j += 1
 
