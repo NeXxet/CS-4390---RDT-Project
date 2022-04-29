@@ -2,7 +2,8 @@ import socket
 import sys
 import random
 import math
-from time import sleep
+import time
+
 bufferSize = 1024
 
 def ConvertToBin(num, minLength):
@@ -35,23 +36,15 @@ def MakeChecksum(pkt):
             checksum += '1'
     return checksum
 
-def BuildPacket(seqNum, ackNum, payload): #rcvWin):
-    #get ack number by adding to the sequence number the number of bytes in the payload
-    # plus 1 byte for the seqNum, 1 for the ackNum itself, and 2 for the checksum
-    ackNum = seqNum + math.ceil(len(payload) / 8) + 1 + 1 + 2
-    #make sure ackNum loops around
-    if(ackNum >= 256):
-        ackNum -= 256
-
-    #convert numbers to binary
+def BuildPacket(seqNum, payload):
+    #convert sequence number to binary
     seqNumBin = ConvertToBin(seqNum, 8)
-    ackNumBin = ConvertToBin(ackNum, 8)
     #make checksum
-    checksum = MakeChecksum(seqNumBin + ackNumBin + payload)
+    checksum = MakeChecksum(seqNumBin + payload)
     #build packet
-    packet = seqNumBin + ackNumBin + checksum + payload
-    
-    return packet, ackNumBin
+    packet = seqNumBin + checksum + payload
+
+    return packet
 
 def Corrupt(pkt, corruptProb):
     #see if the packet is to be corrupted
@@ -69,24 +62,94 @@ def Corrupt(pkt, corruptProb):
     pkt = pkt[:index] + flipped + pkt[index+1:] #reassign string with new index
     return pkt
 
-def Send(socket, dest, pkt, ackNumBin, corruptProb):
-    rcvSeqNum = ''
-    while rcvSeqNum != ackNumBin:
-        #send the packet to the server
-        thispkt = Corrupt(pkt, corruptProb) #call the Corrupt method to maybe corrupt the packet
-        encodedMsg = str.encode(thispkt) #encode the new packet
-        socket.sendto(encodedMsg, dest) #send to server
+def Send(socket, dest, pkt, corruptProb):
+    #send the packet to the server
+    thispkt = Corrupt(pkt, corruptProb) #call the Corrupt method to maybe corrupt the packet
+    encodedMsg = str.encode(thispkt) #encode the new packet
+    socket.sendto(encodedMsg, dest) #send to server
+    print("sent seqNum:", int(pkt[:8], 2))
 
-        #receive a reply
-        pair = socket.recvfrom(bufferSize) #receive a message from the server
-        rcvSeqNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
-        rcvAckNum = "{}".format(pair[0][8:]).replace('b', '').replace('\'', '')
-        #IMPORTANT: the server only sends a seqNum and ackNum, you must manually
-        # change this if that is to change
-        print("rcvSeqNum:", rcvSeqNum)
-        
-    return int(rcvAckNum, 2)
 
+def GBNSend(socket, dest, binData, corruptProb, timeout):
+    seqNum = 0
+    window = [] #list of in order packets in the window
+    WINSIZE = 5
+    i = 0 #i is used to iterate through the data and get the payload
+
+    #send the data until it is gone
+    while i < len(binData): #iterate through the data, taking 100 bytes each time
+        #send all packets that can fit in the window
+        while len(window) < WINSIZE:
+            #get payload data
+            if(len(binData[i:]) >= 800): #if the data has more than 100 bytes left, take the next 100 bytes
+                payload = binData[i:i+800]
+            else:
+                payload = binData[i:] #if the data has less than 100 bytes left, take the rest
+
+            #build packet and get expected sequence number
+            packet = BuildPacket(seqNum, payload) #create the packet and update ackNum
+            window.append(packet)
+
+            #get next sequence number
+            seqNum += 1
+            if(seqNum >= 256): #loop seqNum
+                seqNum -= 256
+
+            #send packet
+            Send(socket, dest, packet, CORRUPT_PROBA) #send the packet to the server
+            timerStart = time.time()
+            
+            i += 800
+
+        #check for all replies from server
+        while len(window) > 0:
+            #if there is a timeout, send the whole window and break
+            if time.time() - timerStart >= timeout:
+                timerStart = time.time()
+                for p in window:
+                    Send(socket, dest, p, CORRUPT_PROBA)
+            else:
+                #if not timed out, try to get a response
+                try:
+                    #receive a reply
+                    pair = socket.recvfrom(bufferSize) #receive a message from the server
+                    rcvAckNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
+                    #IMPORTANT: the server only sends an ackNum, you must manually
+                    # change this if that is to change
+                    print("rcvAckNum:", int(rcvAckNum, 2))
+                    
+                    #if the ack is correct, increase the window size and move on
+                    if rcvAckNum == window[0][:8]:
+                        window.pop(0) #remove the top packet from the window
+                        break
+                    #else, ignore it
+                except OSError:
+                    pass #if there is no reply, just continue to the top of the loop
+
+    #has broken out of outer while loop; make sure there isn't any data left to be received
+    while len(window) > 0:
+        #if there is a timeout, send the whole window and break
+        if time.time() - timerStart >= timeout:
+            timerStart = time.time()
+            for p in window:
+                Send(socket, dest, p, CORRUPT_PROBA)
+        else:
+            #if not timed out, try to get a response
+            try:
+                #receive a reply
+                pair = socket.recvfrom(bufferSize) #receive a message from the server
+                rcvAckNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
+                #IMPORTANT: the server only sends an ackNum, you must manually
+                # change this if that is to change
+                print("rcvAckNum:", int(rcvAckNum, 2))
+                
+                #if the ack is correct, increase the window size and move on
+                if rcvAckNum == window[0][:8]:
+                    window.pop(0) #remove the top packet from the window
+                #else, ignore it
+            except OSError:
+                pass #if there is no reply, just continue to the top of the loop
+    
 file = open(sys.argv[1], 'r') #data file name is first argument
 data = file.read() #read in all the data to one large string
 file.close() #close the file
@@ -95,29 +158,23 @@ binData = ''.join(format(ord(x), 'b') for x in data) #convert the data to binary
 #create socket
 serverPort = ("127.0.0.1", 20001)
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+client_socket.setblocking(False)
 
-#set up local variables
-CORRUPT_PROBA = int(sys.argv[2]) #corruption probabiity is second argument
-seqNum = 0
-ackNum = 0
-i = 0 #i is used to iterate through the data and get the payload
-j = 0 #j is used to count the number of packets
+CORRUPT_PROBA = int(sys.argv[2]) #corruption probabiity is the second argument
+mechanism = sys.argv[3] #mechanism isthe  thrid argument
+timeout = float(sys.argv[4]) #the timeout time is the fourth argumetn
 
-#send the data until it is gone
-while i < len(binData): #iterate through the data, taking 100 bytes each time
-    if(len(binData[i:]) >= 800): #if the data has more than 100 bytes left, take the next 100 bytes
-        payload = binData[i:i+800]
-    else:
-        payload = binData[i:] #if the data has less than 100 bytes left, take the rest
-    packet, ackNumBin = BuildPacket(seqNum, ackNum, payload) #create the packet and update ackNum
-    print(j)
-    ackNum = Send(client_socket, serverPort, packet, ackNumBin, CORRUPT_PROBA) #send the packet to the server
-    seqNum = ackNum #set the next seqNum to the ackNum
-    if(seqNum >= 256): #this should never proc, but leave it just in case
-        seqNum -= 256;
-    i += 800
-    j += 1
+#get the transfer mechanism and call appropriate function
+if mechanism == "GBN":
+    GBNSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout)
 
 #end transfer and close socket
 print("transfer done")
+#make sure there isn't left over acks
+while True:
+    try:
+        client_socket.recvfrom(bufferSize)
+    except OSError:
+        break
+#close client
 client_socket.close()

@@ -30,12 +30,12 @@ def MakeChecksum(pkt): #this is a copy of client's MakeChecksum
             checksum += '1'
     return checksum
 
-def BuildPacket(seqNum, ackNum, payload): #this is NOT a copy of client's BuildPacket
+def BuildPacket(ackNum, payload): #this is NOT a copy of client's BuildPacket
     #convert numbers to binary
-    seqNumBin = ConvertToBin(seqNum, 8)
     ackNumBin = ConvertToBin(ackNum, 8)
     #build packet
-    packet = seqNumBin + ackNumBin + payload
+    packet = ackNumBin + payload
+    print("sent ackNum:", ackNum)
     return packet
 
 def Send(socket, dest, pkt): #this is NOT a copy of client's Send
@@ -52,39 +52,37 @@ server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_socket.bind((localIP, localPort))
 
 #always be looking for messages
-i = -1
-lastSeqNum = 0
-lastAckNum = -1
+lastSeqNum = -1
+expectedSeqNum = 0
 while True:
     #receive and acknowledge all received messages and increment i once a correct packet is received
     correctPkt = False
-    i += 1
     while correctPkt == False:
         addressPair = server_socket.recvfrom(bufferSize)
         rcvPacket = addressPair[0]
         address = addressPair[1]
 
         rcvSeqNumBin = "{}".format(rcvPacket[:8]).replace('b', '').replace('\'', '') #sequence number is first 8 bits
-        rcvAckNumBin = "{}".format(rcvPacket[8:16]).replace('b', '').replace('\'', '') #acknowledgement number is the next 8 bits
-        rcvChecksum = "{}".format(rcvPacket[16:32]).replace('b', '').replace('\'', '') #checksum is the next 16 bits
-        rcvPayload = "{}".format(rcvPacket[32:]).replace('b', '').replace('\'', '') #payload is the rest
+        rcvChecksum = "{}".format(rcvPacket[8:24]).replace('b', '').replace('\'', '') #checksum is the next 16 bits
+        rcvPayload = "{}".format(rcvPacket[24:]).replace('b', '').replace('\'', '') #payload is the rest
         #IMPORTANT: change these assignments according to how the packet is
         # generated in the UDPClient file, there is no way to have the server
         # check for us
 
-        rcvSeqNum = int(rcvSeqNumBin, 2)
-        rcvAckNum = int(rcvAckNumBin, 2)            
+        rcvSeqNum = int(rcvSeqNumBin, 2)           
         
-        checksum = MakeChecksum(rcvSeqNumBin + rcvAckNumBin + rcvPayload) #make receiver checksum
-        if rcvChecksum == checksum:
-            print(i, "Correct packet received")
-            packet = BuildPacket(rcvAckNum, rcvSeqNum + 1, '') #build ack packet with no payload
+        checksum = MakeChecksum(rcvSeqNumBin + rcvPayload) #make receiver checksum
+        if (rcvChecksum == checksum) and (rcvSeqNum == expectedSeqNum):
+            print("Correct packet received")
+            packet = BuildPacket(rcvSeqNum, '') #build ack packet with no payload
             lastSeqNum = rcvSeqNum
-            lastAckNum = rcvAckNum
+            expectedSeqNum += 1
+            if expectedSeqNum >= 256: #loop expected sequence number
+                expectedSeqNum -= 256
             correctPkt = True
         else:
-            print(i, "Incorrect packet received")
-            packet = BuildPacket(lastAckNum, lastSeqNum + 1, '') #build ack packet with no payload
+            print("Incorrect packet received")
+            packet = BuildPacket(lastSeqNum, '') #build ack packet with no payload
             correctPkt = False
 
         Send(server_socket, address, packet)
