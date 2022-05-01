@@ -77,23 +77,23 @@ def Send(socket, dest, pkt, corruptProb):
     #print("sent seqNum:", int(pkt[:8], 2))
 
 
-def GBNSend(socket, dest, binData, corruptProb, timeout):
+def GBNSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
     global numBytes
     global numTransmits
     global numTOEvents
     global numRetransmits
     seqNum = 0
+    bitsToRead = payloadSize * 8
     window = [] #list of in order packets in the window
-    WINSIZE = 5
     i = 0 #i is used to iterate through the data and get the payload
 
     #send the data until it is gone
     while i < len(binData): #iterate through the data, taking 100 bytes each time
         #send all packets that can fit in the window
-        while len(window) < WINSIZE:
+        while len(window) < winSize:
             #get payload data
-            if(len(binData[i:]) >= 800): #if the data has more than 100 bytes left, take the next 100 bytes
-                payload = binData[i:i+800]
+            if(len(binData[i:]) >= bitsToRead): #if the data has more than 100 bytes left, take the next 100 bytes
+                payload = binData[i:i+bitsToRead]
             else:
                 payload = binData[i:] #if the data has less than 100 bytes left, take the rest
             numBytes += math.ceil(len(payload) / 8)
@@ -112,7 +112,7 @@ def GBNSend(socket, dest, binData, corruptProb, timeout):
             numTransmits += 1
             timerStart = time.time()
             
-            i += 800
+            i += bitsToRead
 
         #check for all replies from server
         while len(window) > 0:
@@ -175,15 +175,17 @@ serverPort = ("127.0.0.1", 20001)
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 client_socket.setblocking(False)
 
-CORRUPT_PROBA = int(sys.argv[2]) #corruption probabiity is the second argument
-mechanism = sys.argv[3] #mechanism isthe  thrid argument
-timeout = float(sys.argv[4]) #the timeout time is the fourth argumetn
+mechanism = sys.argv[2] #mechanism is the second argument
+CORRUPT_PROBA = int(sys.argv[3]) #corruption probabiity is the third argument
+timeout = float(sys.argv[4]) #the timeout time is the fourth argument
+winSize = int(sys.argv[5]) #the window size is the fifth argument
+payloadSize = int(sys.argv[6]) #the payload size is the sixth argument
 
 #get the transfer mechanism and call appropriate function
 print("begin transfer")
 timeBegin = time.time()
 if mechanism == "GBN":
-    GBNSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout)
+    GBNSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout, winSize, payloadSize)
 
 #make sure there isn't left over acks
 while True:
