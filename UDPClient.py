@@ -90,19 +90,20 @@ def Send(socket, dest, pkt, corruptProb):
 #are successfully sent and received.
 
 
-def SRSend(socket, dest, binData, corruptProb, timeout):
+def SRSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
     seqNum = 0
     window = []  # list of in order packets in the window
-    WINSIZE = 5
+    WINSIZE = winSize
     i = 0  # i is used to iterate through the data and get the payload
+    bitsToRead = payloadSize * 8
 
     #this part should be the same as the GBNSend to fully sending all the information
     while i < len(binData):  # iterate through the data, taking 100 bytes each time
         # send all packets that can fit in the window
         while len(window) < WINSIZE:
             # get payload data
-            if (len(binData[i:]) >= 800):  # if the data has more than 100 bytes left, take the next 100 bytes
-                payload = binData[i:i + 800]
+            if (len(binData[i:]) >= bitsToRead):  # if the data has more than 100 bytes left, take the next 100 bytes
+                payload = binData[i:i + bitsToRead]
             else:
                 payload = binData[i:]  # if the data has less than 100 bytes left, take the rest
 
@@ -123,7 +124,7 @@ def SRSend(socket, dest, binData, corruptProb, timeout):
 
             seqNum += 1
 
-            i += 800
+            i += bitsToRead
 
 
         #while the packet with the lowest sequence number isn't received
@@ -291,7 +292,9 @@ print("begin transfer")
 timeBegin = time.time()
 if mechanism == "GBN":
     GBNSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout, winSize, payloadSize)
-
+if mechanism == "SR":
+    GBNSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout, winSize, payloadSize)
+    
 # make sure there isn't left over acks
 while True:
     try:
