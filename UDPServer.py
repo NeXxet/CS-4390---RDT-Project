@@ -1,4 +1,5 @@
 import socket
+import math
 
 def ConvertToBin(num, minLength): #this is a copy of client's ConvertToBin
     bnry = bin(num).replace('0b','') #convert to binary string and remove prefix
@@ -35,17 +36,20 @@ def BuildPacket(ackNum, payload): #this is NOT a copy of client's BuildPacket
     ackNumBin = ConvertToBin(ackNum, 8)
     #build packet
     packet = ackNumBin + payload
-    print("sent ackNum:", ackNum)
+    #print("sent ackNum:", ackNum)
     return packet
 
 def Send(socket, dest, pkt): #this is NOT a copy of client's Send
     encodedMsg = str.encode(pkt)
     socket.sendto(encodedMsg, dest)
 
-#setup local variables
+#setup variables
 localIP = "127.0.0.1"
 localPort = 20001
 bufferSize = 1024
+numBytes = 0
+numErrors = 0
+numOutOfSeq = 0
 
 #create and bind the socket
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -54,10 +58,11 @@ server_socket.bind((localIP, localPort))
 #always be looking for messages
 lastSeqNum = -1
 expectedSeqNum = 0
-while True:
+transferDone = False
+while not transferDone:
     #receive and acknowledge all received messages and increment i once a correct packet is received
     correctPkt = False
-    while correctPkt == False:
+    while not correctPkt:
         addressPair = server_socket.recvfrom(bufferSize)
         rcvPacket = addressPair[0]
         address = addressPair[1]
@@ -73,16 +78,32 @@ while True:
         
         checksum = MakeChecksum(rcvSeqNumBin + rcvPayload) #make receiver checksum
         if (rcvChecksum == checksum) and (rcvSeqNum == expectedSeqNum):
-            print("Correct packet received")
+            #print("Correct packet received")
             packet = BuildPacket(rcvSeqNum, '') #build ack packet with no payload
             lastSeqNum = rcvSeqNum
             expectedSeqNum += 1
             if expectedSeqNum >= 256: #loop expected sequence number
                 expectedSeqNum -= 256
             correctPkt = True
+            numBytes += math.ceil(len(rcvPayload) / 8)
+            if (len(rcvPayload) / 8) != 100:
+                transferDone = True
         else:
-            print("Incorrect packet received")
-            packet = BuildPacket(lastSeqNum, '') #build ack packet with no payload
+            #print("Incorrect packet received")
+            packet = BuildPacket(lastSeqNum, '') #build nack packet with no payload
             correctPkt = False
+            if rcvChecksum != checksum:
+                numErrors += 1
+            else:
+                numOutOfSeq += 1
 
         Send(server_socket, address, packet)
+
+#print statistical variables
+print("transfer done")
+print("numBytes:", numBytes)
+print("numErrors:", numErrors)
+print("numOutOfSeq:", numOutOfSeq)
+
+#close server
+server_socket.close()

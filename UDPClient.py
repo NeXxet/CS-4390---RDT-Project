@@ -4,7 +4,13 @@ import random
 import math
 import time
 
+#initiate the buffer size and statistical variables
 bufferSize = 1024
+numTransmits = 0
+numRetransmits = 0
+numTOEvents = 0
+numBytes = 0
+numCorrupts = 0
 
 def ConvertToBin(num, minLength):
     bnry = bin(num).replace('0b','') #convert to binary string and remove prefix
@@ -43,17 +49,18 @@ def BuildPacket(seqNum, payload):
     checksum = MakeChecksum(seqNumBin + payload)
     #build packet
     packet = seqNumBin + checksum + payload
-
     return packet
 
 def Corrupt(pkt, corruptProb):
+    global numCorrupts
     #see if the packet is to be corrupted
     rand = random.randint(1,100)
     if rand > corruptProb: #corrupt if the random int is within the corrupt probability
         return pkt
 
     #corrupt the packet
-    print("PACKET CORRUPTED")
+    #print("PACKET CORRUPTED")
+    numCorrupts += 1
     index = random.randint(0, len(pkt)-1) #randomly select an index
     if pkt[index] == '0': #flip the selected index
         flipped = '1'
@@ -67,10 +74,14 @@ def Send(socket, dest, pkt, corruptProb):
     thispkt = Corrupt(pkt, corruptProb) #call the Corrupt method to maybe corrupt the packet
     encodedMsg = str.encode(thispkt) #encode the new packet
     socket.sendto(encodedMsg, dest) #send to server
-    print("sent seqNum:", int(pkt[:8], 2))
+    #print("sent seqNum:", int(pkt[:8], 2))
 
 
 def GBNSend(socket, dest, binData, corruptProb, timeout):
+    global numBytes
+    global numTransmits
+    global numTOEvents
+    global numRetransmits
     seqNum = 0
     window = [] #list of in order packets in the window
     WINSIZE = 5
@@ -85,6 +96,7 @@ def GBNSend(socket, dest, binData, corruptProb, timeout):
                 payload = binData[i:i+800]
             else:
                 payload = binData[i:] #if the data has less than 100 bytes left, take the rest
+            numBytes += math.ceil(len(payload) / 8)
 
             #build packet and get expected sequence number
             packet = BuildPacket(seqNum, payload) #create the packet and update ackNum
@@ -97,6 +109,7 @@ def GBNSend(socket, dest, binData, corruptProb, timeout):
 
             #send packet
             Send(socket, dest, packet, CORRUPT_PROBA) #send the packet to the server
+            numTransmits += 1
             timerStart = time.time()
             
             i += 800
@@ -106,8 +119,10 @@ def GBNSend(socket, dest, binData, corruptProb, timeout):
             #if there is a timeout, send the whole window and break
             if time.time() - timerStart >= timeout:
                 timerStart = time.time()
+                numTOEvents += 1
                 for p in window:
                     Send(socket, dest, p, CORRUPT_PROBA)
+                    numRetransmits += 1
             else:
                 #if not timed out, try to get a response
                 try:
@@ -116,7 +131,7 @@ def GBNSend(socket, dest, binData, corruptProb, timeout):
                     rcvAckNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
                     #IMPORTANT: the server only sends an ackNum, you must manually
                     # change this if that is to change
-                    print("rcvAckNum:", int(rcvAckNum, 2))
+                    #print("rcvAckNum:", int(rcvAckNum, 2))
                     
                     #if the ack is correct, increase the window size and move on
                     if rcvAckNum == window[0][:8]:
@@ -141,7 +156,7 @@ def GBNSend(socket, dest, binData, corruptProb, timeout):
                 rcvAckNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
                 #IMPORTANT: the server only sends an ackNum, you must manually
                 # change this if that is to change
-                print("rcvAckNum:", int(rcvAckNum, 2))
+                #print("rcvAckNum:", int(rcvAckNum, 2))
                 
                 #if the ack is correct, increase the window size and move on
                 if rcvAckNum == window[0][:8]:
@@ -165,16 +180,26 @@ mechanism = sys.argv[3] #mechanism isthe  thrid argument
 timeout = float(sys.argv[4]) #the timeout time is the fourth argumetn
 
 #get the transfer mechanism and call appropriate function
+print("begin transfer")
+timeBegin = time.time()
 if mechanism == "GBN":
     GBNSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout)
 
-#end transfer and close socket
-print("transfer done")
 #make sure there isn't left over acks
 while True:
     try:
         client_socket.recvfrom(bufferSize)
     except OSError:
         break
+    
+#print statistical variables
+print("transfer done")
+print("numTransmits:", numTransmits)
+print("numRetransmits:", numRetransmits)
+print("numTOEvents:", numTOEvents)
+print("numBytes:", numBytes)
+print("numCorrupts:", numCorrupts)
+print("timeElapsed:", time.time() - timeBegin)
+      
 #close client
 client_socket.close()
