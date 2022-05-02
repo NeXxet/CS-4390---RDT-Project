@@ -52,7 +52,6 @@ def BuildPacket(seqNum, payload):
     checksum = MakeChecksum(seqNumBin + payload)
     # build packet
     packet = seqNumBin + checksum + payload
-    #print("sent seqNum:", seqNum)
     return packet
 
 def Corrupt(pkt, corruptProb):
@@ -63,7 +62,6 @@ def Corrupt(pkt, corruptProb):
         return pkt
 
     # corrupt the packet
-    #print("PACKET CORRUPTED")
     numCorrupts += 1
     index = random.randint(0, len(pkt) - 1)  # randomly select an index
     if pkt[index] == '0':  # flip the selected index
@@ -196,13 +194,11 @@ def SRSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
                     p[1] = time.time() # reset timer
                     numRetransmits += 1
                     numTOEvents += 1
-                    #print("retransmitted:", p[0][:8])
 
             # try to get a reply and ack a packet in the window
             try:
                 pair = socket.recvfrom(bufferSize)  # receive a message from the server
                 rcvAckNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
-                #print("rcvAckNum:", int(rcvAckNum, 2))
 
                 #for each packet in the window, test if it is received
                 for p in window:

@@ -48,7 +48,6 @@ def BuildPacket(ackNum, payload):
     ackNumBin = ConvertToBin(ackNum, 8)
     #build packet
     packet = ackNumBin + payload
-    #print("sent ackNum:", ackNum)
     return packet
 
 def Send(socket, dest, pkt):
@@ -78,7 +77,6 @@ def GBNReceive(socket, outFile):
            
         checksum = MakeChecksum(rcvSeqNumBin + rcvPayload) #make receiver checksum
         if (rcvChecksum == checksum) and (rcvSeqNum == expectedSeqNum):
-            #print("Correct packet received")
             packet = BuildPacket(rcvSeqNum, '') #build ack packet with no payload
             lastSeqNum = rcvSeqNum
             expectedSeqNum += 1
@@ -92,7 +90,6 @@ def GBNReceive(socket, outFile):
             WriteAsciiToFile(rcvPayload, outFile)
             
         else:
-            #print("Incorrect packet received")
             packet = BuildPacket(lastSeqNum, '') #build ack packet for the last arrival with no payload
             if rcvChecksum != checksum:
                 numErrors += 1
