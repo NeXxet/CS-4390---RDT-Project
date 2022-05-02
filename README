@@ -1,1 +1,29 @@
+RDT over UDP 
+
+Files: 
+UDPServer.py 
+Python file that serves as the server-side of the UDP connection. It is responsible for checking the checksum and comparing them with the coming packets. 
+After receiving packets, the server then extracts the sequence number, checksum, and payload from the packet. At the same time, 
+it echoes back to the client for further confirmation of the validation of the packets base on ACK number. 
+
+UDPClient.py:
+	Python file that serves as the client-side of the UDP connection. It is responsible for the rdt protocols which include go-back-n and selective repeat. 
+  The program also generates packets based on payload input. Furthermore, it requires users to manually input file name, 
+  name of selected mechanism, probability of data corruption, timeout length, window size, and payload size. 
+
+How to Run:
+
+Download all of the files in the github
+Open both Server and Client python files so that they can run in parallel
+Run UDPServer.py with system arguments of “out.txt”, or any desired output file
+
+	python UDPServer.py out.txt
+
+Run UDPClient.py, then enter the selected mechanism that is testing, probability of data corruption, timeout length, window size, and payload size with the order above.
+
+python UDPClient.py 500K.txt <CORRUPT_PROBA> <timeout value> <window size> <payload size>
+
+
+
+Created by: William Callihan, Andrew Nguyen, Lu Qi, Samuel Wong
 
