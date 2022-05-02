@@ -52,8 +52,8 @@ def BuildPacket(seqNum, payload):
     checksum = MakeChecksum(seqNumBin + payload)
     # build packet
     packet = seqNumBin + checksum + payload
+    #print("sent seqNum:", seqNum)
     return packet
-
 
 def Corrupt(pkt, corruptProb):
     global numCorrupts
@@ -63,7 +63,7 @@ def Corrupt(pkt, corruptProb):
         return pkt
 
     # corrupt the packet
-    # print("PACKET CORRUPTED")
+    #print("PACKET CORRUPTED")
     numCorrupts += 1
     index = random.randint(0, len(pkt) - 1)  # randomly select an index
     if pkt[index] == '0':  # flip the selected index
@@ -79,108 +79,6 @@ def Send(socket, dest, pkt, corruptProb):
     thispkt = Corrupt(pkt, corruptProb)  # call the Corrupt method to maybe corrupt the packet
     encodedMsg = str.encode(thispkt)  # encode the new packet
     socket.sendto(encodedMsg, dest)  # send to server
-    # print("sent seqNum:", int(pkt[:8], 2))
-
-
-
-
-#theory: within a fixed window size, there exist a buffer that stores every packet that is sent out, after each packet received, it should be dropped from the buffer.
-#There should be a timer for every packet that exist, timer starts when the packet is sent. After the timer is out, then program should take the packet from the buffer
-#with the same sequence number and resend it. Same thing with if the packet is corrupted. the window only moves, or only accept new packets if all the packets in the window
-#are successfully sent and received.
-
-
-def SRSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
-    seqNum = 0
-    window = []  # list of in order packets in the window
-    WINSIZE = winSize
-    i = 0  # i is used to iterate through the data and get the payload
-    bitsToRead = payloadSize * 8
-
-    #this part should be the same as the GBNSend to fully sending all the information
-    while i < len(binData):  # iterate through the data, taking 100 bytes each time
-        # send all packets that can fit in the window
-        while len(window) < WINSIZE:
-            # get payload data
-            if (len(binData[i:]) >= bitsToRead):  # if the data has more than 100 bytes left, take the next 100 bytes
-                payload = binData[i:i + bitsToRead]
-            else:
-                payload = binData[i:]  # if the data has less than 100 bytes left, take the rest
-
-            # build packet and get expected sequence number
-            packet = BuildPacket(seqNum, payload)  # create the packet and update ackNum
-
-            # get next sequence number
-            if (seqNum >= 256):  # loop seqNum
-                seqNum -= 256
-
-            # send packet
-            Send(socket, dest, packet, CORRUPT_PROBA)  # send the packet to the server
-            timerStart = time.time()
-
-            #By having the Selective repeat packet and start time forming one unit, it makes it possible to check for individual timer
-            SRpacket = [packet, timerStart]
-            window.append(SRpacket)
-
-            seqNum += 1
-
-            i += bitsToRead
-
-
-        #while the packet with the lowest sequence number isn't received
-        checker = True
-        while checker:
-            for x in window:
-                #since each packet has its own timer, therefore they are checked individually to make sure no packet times out
-                if time.time() - x[1] >= timeout:
-                    x[1] = time.time()
-                    Send(socket, dest, x[0], CORRUPT_PROBA)
-                else:
-                    break
-
-            try:
-                pair = socket.recvfrom(bufferSize)  # receive a message from the server
-
-                #for each packet in the window, test if it is received. if yes, then
-                for x in window:
-                    count = 0
-                    rcvAckNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
-                    print("rcvAckNum:", int(rcvAckNum, 2))
-
-                    #if the number is matching, then pass, if not, then resend the packet
-                    if rcvAckNum == x[0][:8]:
-                        print("\n")
-
-                        #if the packet with the least sequence number has its ACK received, then slide window
-                        if count == 0:
-                            print("\n")
-                            window.pop(0)
-                            checker = False
-                            break
-
-                        #if the packet doesn't have the least sequence number, then continue the loop
-                        else:
-                            pass
-
-                    #if incorrect ACK received, then resend the packet and add to count
-                    else:
-                        Send(socket, dest, x[0], CORRUPT_PROBA)
-                        count += 1
-
-            except OSError:
-                pass  # if there is no reply, just continue to the top of the loop
-
-
-
-
-
-
-
-
-
-
-
-
 
 def GBNSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
     global numBytes
@@ -192,10 +90,13 @@ def GBNSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
     window = []  # list of in order packets in the window
     i = 0  # i is used to iterate through the data and get the payload
 
-    # send the data until it is gone
-    while i < len(binData):  # iterate through the data, taking 100 bytes each time
+    # send initial packet to tell the server to use Go-Back-N
+    Send(socket, dest, "GBN", 0)
+
+    # send until all the data is sent and received
+    while i < len(binData) or len(window) > 0:
         # send all packets that can fit in the window
-        while len(window) < winSize:
+        while i < len(binData) and len(window) < winSize:
             # get payload data
             if (len(binData[i:]) >= bitsToRead):  # if the data has more than 100 bytes left, take the next 100 bytes
                 payload = binData[i:i + bitsToRead]
@@ -205,17 +106,17 @@ def GBNSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
 
             # build packet and get expected sequence number
             packet = BuildPacket(seqNum, payload)  # create the packet and update ackNum
+
+            # send packet
+            Send(socket, dest, packet, CORRUPT_PROBA)  # send the packet to the server
+            timerStart = time.time()
+            numTransmits += 1
             window.append(packet)
 
             # get next sequence number
             seqNum += 1
             if (seqNum >= 256):  # loop seqNum
                 seqNum -= 256
-
-            # send packet
-            Send(socket, dest, packet, CORRUPT_PROBA)  # send the packet to the server
-            numTransmits += 1
-            timerStart = time.time()
 
             i += bitsToRead
 
@@ -234,9 +135,6 @@ def GBNSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
                     # receive a reply
                     pair = socket.recvfrom(bufferSize)  # receive a message from the server
                     rcvAckNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
-                    # IMPORTANT: the server only sends an ackNum, you must manually
-                    # change this if that is to change
-                    # print("rcvAckNum:", int(rcvAckNum, 2))
 
                     # if the ack is correct, increase the window size and move on
                     if rcvAckNum == window[0][:8]:
@@ -246,30 +144,84 @@ def GBNSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
                 except OSError:
                     pass  # if there is no reply, just continue to the top of the loop
 
-    # has broken out of outer while loop; make sure there isn't any data left to be received
-    while len(window) > 0:
-        # if there is a timeout, send the whole window and break
-        if time.time() - timerStart >= timeout:
+def SRSend(socket, dest, binData, corruptProb, timeout, winSize, payloadSize):
+    global numBytes
+    global numTransmits
+    global numTOEvents
+    global numRetransmits
+    seqNum = 0
+    bitsToRead = payloadSize * 8
+    window = []  # list of in order packets in the window
+    i = 0  # i is used to iterate through the data and get the payload
+
+    # send initial packet to tell the server to use Selective Repeat
+    Send(socket, dest, "SR", 0)
+
+    # send until all the data is sent and received
+    while i < len(binData) or len(window) > 0:
+        # send all packets that can fit in the window
+        while i < len(binData) and len(window) < winSize:
+            # get payload data
+            if (len(binData[i:]) >= bitsToRead):  # if the data has more than payloadSize bytes left, take the next 100 bytes
+                payload = binData[i:i + bitsToRead]
+            else:
+                payload = binData[i:]  # if the data has less than payloadSize bytes left, take the rest
+            numBytes += math.ceil(len(payload) / 8)
+
+            # build packet
+            packet = BuildPacket(seqNum, payload)
+
+            # send packet
+            Send(socket, dest, packet, corruptProb)
             timerStart = time.time()
+            numTransmits += 1
+            # add a list with the packet, its timer, and its ACK status to the window
+            SRpacket = [packet, timerStart, False]
+            window.append(SRpacket)
+
+            # get next sequence number
+            seqNum += 1
+            if (seqNum >= 256): # loop seqNum
+                seqNum -= 256
+
+            i += bitsToRead
+
+        # iterate until an ACK is received and assigned
+        ackFound = False
+        while not ackFound:
+            # check each packet for a timeout
             for p in window:
-                Send(socket, dest, p, CORRUPT_PROBA)
-        else:
-            # if not timed out, try to get a response
+                if (time.time() - p[1] >= timeout) and (not p[2]):
+                    Send(socket, dest, p[0], corruptProb) # retransmit packet
+                    p[1] = time.time() # reset timer
+                    numRetransmits += 1
+                    numTOEvents += 1
+                    #print("retransmitted:", p[0][:8])
+
+            # try to get a reply and ack a packet in the window
             try:
-                # receive a reply
                 pair = socket.recvfrom(bufferSize)  # receive a message from the server
                 rcvAckNum = "{}".format(pair[0][:8]).replace('b', '').replace('\'', '')
-                # IMPORTANT: the server only sends an ackNum, you must manually
-                # change this if that is to change
-                # print("rcvAckNum:", int(rcvAckNum, 2))
+                #print("rcvAckNum:", int(rcvAckNum, 2))
 
-                # if the ack is correct, increase the window size and move on
-                if rcvAckNum == window[0][:8]:
-                    window.pop(0)  # remove the top packet from the window
-                # else, ignore it
+                #for each packet in the window, test if it is received
+                for p in window:
+                    #if the number is matching, then set its ACK status to true
+                    if rcvAckNum == p[0][:8]:
+                        p[2] = True
+                        ackFound = True # break out of while loop when done
+                        break #break out of for loop
+
+                # starting from the front of the window, remove all packets that have been acked until you find one that hasn't
+                while len(window) > 0:
+                    if window[0][2]:
+                        window.pop(0)
+                    else:
+                        break
+
             except OSError:
                 pass  # if there is no reply, just continue to the top of the loop
-
+            
 
 file = open(sys.argv[1], 'r')  # data file name is first argument
 data = file.read()  # read in all the data to one large string
@@ -288,12 +240,17 @@ winSize = int(sys.argv[5])  # the window size is the fifth argument
 payloadSize = int(sys.argv[6])  # the payload size is the sixth argument
 
 # get the transfer mechanism and call appropriate function
-print("begin transfer")
 timeBegin = time.time()
 if mechanism == "GBN":
+    print("begining Go-Back-N transfer")
     GBNSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout, winSize, payloadSize)
-if mechanism == "SR":
-    GBNSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout, winSize, payloadSize)
+elif mechanism == "SR":
+    print("begining Selective Repeat transfer")
+    SRSend(client_socket, serverPort, binData, CORRUPT_PROBA, timeout, winSize, payloadSize)
+else:
+    print("invalid mechanism name:", mechanism)
+    client_socket.close()
+    exit()
     
 # make sure there isn't left over acks
 while True:
