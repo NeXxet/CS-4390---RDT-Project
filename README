@@ -2,7 +2,7 @@ RDT over UDP
 
 Files: 
 UDPServer.py 
-	Python file that serves as the server-side of the UDP connection. It is responsible for checking the checksum and comparing them with the coming packets. 
+	Python file that serves as the server-side of the UDP connection. Program is responsible for checking the checksum and comparing them with the coming packets. 
 After receiving packets, the server then extracts the sequence number, checksum, and payload from the packet. At the same time, 
 it echoes back to the client for further confirmation of the validation of the packets base on ACK number. 
 
